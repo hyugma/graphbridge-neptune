@@ -2,6 +2,8 @@ from datetime import date, datetime
 from decimal import Decimal
 import json
 
+import pytest
+
 from graphbridge_neptune.client import NeptuneClient
 
 
@@ -17,6 +19,20 @@ class DummyCredentials:
     @property
     def graph_uri(self):
         return f"{self.graph_scheme}://{self.graph_host}:{self.graph_port}"
+
+
+class EmptyGraphUriCredentials(DummyCredentials):
+    @property
+    def graph_uri(self):
+        return ""
+
+
+class MissingHostCredentials(DummyCredentials):
+    graph_host = ""
+
+
+class HostWithSchemeCredentials(DummyCredentials):
+    graph_host = "https://neptune.local:8182"
 
 
 class FakeResponse:
@@ -99,6 +115,23 @@ def test_verify_connectivity_runs_simple_query(monkeypatch):
 
     assert fake_session.posts[0][1] == {"query": "RETURN 1 AS ok"}
     assert fake_session.closed is True
+
+
+def test_endpoint_uses_host_components_even_when_graph_uri_is_empty():
+    endpoint = NeptuneClient._open_cypher_endpoint(EmptyGraphUriCredentials())
+
+    assert endpoint == "https://neptune.local:8182/openCypher"
+
+
+def test_endpoint_accepts_host_with_scheme():
+    endpoint = NeptuneClient._open_cypher_endpoint(HostWithSchemeCredentials())
+
+    assert endpoint == "https://neptune.local:8182/openCypher"
+
+
+def test_endpoint_requires_host():
+    with pytest.raises(ValueError, match="graph_host is required"):
+        NeptuneClient._open_cypher_endpoint(MissingHostCredentials())
 
 
 def test_sanitize_record_converts_json_unsafe_values():

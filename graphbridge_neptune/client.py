@@ -6,7 +6,6 @@ import json
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Dict, Optional, Tuple
-from urllib.parse import urljoin
 
 import requests
 from dbt.adapters.contracts.connection import AdapterResponse
@@ -93,13 +92,19 @@ class NeptuneClient(GraphEngineClient):
 
     @staticmethod
     def _open_cypher_endpoint(credentials: Any) -> str:
-        graph_uri = getattr(credentials, "graph_uri", "")
-        if not graph_uri:
-            scheme = getattr(credentials, "graph_scheme", "https")
-            host = getattr(credentials, "graph_host")
-            port = getattr(credentials, "graph_port", 8182)
-            graph_uri = f"{scheme}://{host}:{port}"
-        return urljoin(graph_uri.rstrip("/") + "/", "openCypher")
+        scheme = str(getattr(credentials, "graph_scheme", "https") or "https")
+        host = str(getattr(credentials, "graph_host", "") or "").strip()
+        port = getattr(credentials, "graph_port", 8182)
+
+        if not host:
+            raise ValueError("graph_host is required for graph_engine: neptune")
+
+        if host.startswith("http://") or host.startswith("https://"):
+            base_uri = host.rstrip("/")
+        else:
+            base_uri = f"{scheme}://{host}:{port}"
+
+        return f"{base_uri}/openCypher"
 
     @staticmethod
     def _extract_records(body: Any) -> list:
