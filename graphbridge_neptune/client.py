@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Dict, Optional, Tuple
@@ -59,7 +60,11 @@ class NeptuneClient(GraphEngineClient):
         for start in range(0, len(batch_data), safe_batch_size):
             chunk = batch_data[start : start + safe_batch_size]
             sanitized_batch = [self._sanitize_record(row) for row in chunk]
-            self._post_open_cypher(cypher, {"batch": sanitized_batch})
+            if self._requires_literal_batch_values(cypher):
+                for row in sanitized_batch:
+                    self._post_open_cypher(self._render_literal_batch_row(cypher, row), {})
+            else:
+                self._post_open_cypher(cypher, {"batch": sanitized_batch})
             total_rows += len(chunk)
 
         return AdapterResponse(
@@ -76,6 +81,7 @@ class NeptuneClient(GraphEngineClient):
         cypher: str,
         parameters: Dict[str, Any],
     ) -> list:
+        cypher = self._translate_neptune_unsupported_constructs(cypher)
         payload = {"query": cypher}
         if parameters:
             payload["parameters"] = json.dumps(
@@ -109,6 +115,44 @@ class NeptuneClient(GraphEngineClient):
         ):
             return "MATCH ()-[r]->() RETURN DISTINCT type(r) AS relationshipType"
         return cypher
+
+    @staticmethod
+    def _translate_neptune_unsupported_constructs(cypher: str) -> str:
+        return re.sub(
+            r"(\b[A-Za-z_][A-Za-z0-9_]*\.identifiers\s*=\s*)(\[[^\]]*\])",
+            lambda match: match.group(1)
+            + NeptuneClient._to_open_cypher_literal(",".join(json.loads(match.group(2)))),
+            cypher,
+        )
+
+    @staticmethod
+    def _requires_literal_batch_values(cypher: str) -> bool:
+        return "UNWIND $batch AS row" in cypher and "row." in cypher
+
+    @staticmethod
+    def _render_literal_batch_row(cypher: str, row: Dict[str, Any]) -> str:
+        rendered = re.sub(r"^\s*UNWIND\s+\$batch\s+AS\s+row\s*\n?", "", cypher)
+
+        for key, value in sorted(row.items(), key=lambda item: len(item[0]), reverse=True):
+            rendered = re.sub(
+                rf"\brow\.{re.escape(str(key))}\b",
+                NeptuneClient._to_open_cypher_literal(value),
+                rendered,
+            )
+
+        return rendered
+
+    @staticmethod
+    def _to_open_cypher_literal(value: Any) -> str:
+        if value is None:
+            return "null"
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, (int, float)):
+            return str(value)
+        if isinstance(value, list):
+            return json.dumps(value, separators=(",", ":"))
+        return json.dumps(str(value), separators=(",", ":"))
 
     @staticmethod
     def _open_cypher_endpoint(credentials: Any) -> str:

@@ -138,6 +138,54 @@ def test_client_posts_batch_data(monkeypatch):
     }
 
 
+def test_client_renders_batch_rows_as_literals_for_neptune(monkeypatch):
+    fake_session = FakeSession()
+    monkeypatch.setattr("requests.Session", lambda: fake_session)
+
+    client = NeptuneClient(DummyCredentials())
+    response = client.execute_cypher_batch(
+        """
+        UNWIND $batch AS row
+        MERGE (n:Company { company_id: row.company_id })
+        SET n.company_name = row.company_name,
+            n.rank = row.rank,
+            n._dbt_loaded_at = datetime()
+        """,
+        [{"company_id": 'a"b', "company_name": "Ada", "rank": 1}],
+    )
+
+    assert response.rows_affected == 1
+    assert fake_session.posts[0][1] == {
+        "query": """MERGE (n:Company { company_id: "a\\"b" })
+        SET n.company_name = "Ada",
+            n.rank = 1,
+            n._dbt_loaded_at = datetime()
+        """
+    }
+
+
+def test_metadata_identifiers_are_rendered_as_string_property(monkeypatch):
+    fake_session = FakeSession()
+    monkeypatch.setattr("requests.Session", lambda: fake_session)
+
+    client = NeptuneClient(DummyCredentials())
+    client.execute_cypher(
+        """
+        MERGE (m:_dbt_model {name: 'company_node'})
+        SET m.identifiers = ["Company"],
+            m.materialization = 'node'
+        """
+    )
+
+    assert fake_session.posts[0][1] == {
+        "query": """
+        MERGE (m:_dbt_model {name: 'company_node'})
+        SET m.identifiers = "Company",
+            m.materialization = 'node'
+        """
+    }
+
+
 def test_verify_connectivity_runs_simple_query(monkeypatch):
     fake_session = FakeSession()
     monkeypatch.setattr("requests.Session", lambda: fake_session)
