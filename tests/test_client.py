@@ -118,6 +118,24 @@ def test_translates_neo4j_relationship_metadata_query(monkeypatch):
     )
 
 
+def test_skips_unsupported_schema_commands(monkeypatch):
+    fake_session = FakeSession()
+    monkeypatch.setattr("requests.Session", lambda: fake_session)
+
+    client = NeptuneClient(DummyCredentials())
+    response, records = client.execute_cypher(
+        """
+        CREATE INDEX Company_company_name_range IF NOT EXISTS
+        FOR (n:Company) ON (n.company_name)
+        """
+    )
+
+    assert response.code == "OK"
+    assert response.rows_affected == 0
+    assert records == []
+    assert fake_session.posts == []
+
+
 def test_client_posts_batch_data(monkeypatch):
     fake_session = FakeSession()
     monkeypatch.setattr("requests.Session", lambda: fake_session)

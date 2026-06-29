@@ -38,6 +38,11 @@ class NeptuneClient(GraphEngineClient):
         database: Optional[str] = None,
     ) -> Tuple[AdapterResponse, list]:
         cypher = self._translate_neo4j_metadata_query(cypher)
+        if self._is_unsupported_schema_command(cypher):
+            return (
+                AdapterResponse(_message="OK (skipped)", code="OK", rows_affected=0),
+                [],
+            )
         records = self._post_open_cypher(cypher, parameters or {})
         response = AdapterResponse(
             _message=f"OK ({len(records)})",
@@ -122,6 +127,13 @@ class NeptuneClient(GraphEngineClient):
         ):
             return "MATCH ()-[r]->() RETURN DISTINCT type(r) AS relationshipType"
         return cypher
+
+    @staticmethod
+    def _is_unsupported_schema_command(cypher: str) -> bool:
+        normalized = " ".join(cypher.strip().split()).lower()
+        return normalized.startswith("create index ") or normalized.startswith(
+            "create constraint "
+        )
 
     @staticmethod
     def _translate_neptune_unsupported_constructs(cypher: str) -> str:
