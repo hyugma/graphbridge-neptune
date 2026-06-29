@@ -3,6 +3,7 @@ from decimal import Decimal
 import json
 
 import pytest
+import requests
 
 from graphbridge_neptune.client import NeptuneClient
 
@@ -36,10 +37,16 @@ class HostWithSchemeCredentials(DummyCredentials):
 
 
 class FakeResponse:
-    def __init__(self, body):
+    def __init__(self, body, status_code=200, text=""):
         self.body = body
+        self.status_code = status_code
+        self.text = text
 
     def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(
+                f"{self.status_code} Error", response=self
+            )
         pass
 
     def json(self):
@@ -82,6 +89,32 @@ def test_client_posts_open_cypher_query(monkeypatch):
             30,
         )
     ]
+
+
+def test_translates_neo4j_label_metadata_query(monkeypatch):
+    fake_session = FakeSession()
+    monkeypatch.setattr("requests.Session", lambda: fake_session)
+
+    client = NeptuneClient(DummyCredentials())
+    client.execute_cypher("CALL db.labels() YIELD label RETURN label")
+
+    assert fake_session.posts[0][1]["query"] == (
+        "MATCH (n) UNWIND labels(n) AS label RETURN DISTINCT label"
+    )
+
+
+def test_translates_neo4j_relationship_metadata_query(monkeypatch):
+    fake_session = FakeSession()
+    monkeypatch.setattr("requests.Session", lambda: fake_session)
+
+    client = NeptuneClient(DummyCredentials())
+    client.execute_cypher(
+        "CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType"
+    )
+
+    assert fake_session.posts[0][1]["query"] == (
+        "MATCH ()-[r]->() RETURN DISTINCT type(r) AS relationshipType"
+    )
 
 
 def test_client_posts_batch_data(monkeypatch):

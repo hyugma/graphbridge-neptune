@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional, Tuple
 import requests
 from dbt.adapters.contracts.connection import AdapterResponse
 from dbt.adapters.graphbridge.graph_engines import GraphEngineClient
+from requests import HTTPError
 
 
 class NeptuneClient(GraphEngineClient):
@@ -34,6 +35,7 @@ class NeptuneClient(GraphEngineClient):
         parameters: Optional[Dict[str, Any]] = None,
         database: Optional[str] = None,
     ) -> Tuple[AdapterResponse, list]:
+        cypher = self._translate_neo4j_metadata_query(cypher)
         records = self._post_open_cypher(cypher, parameters or {})
         response = AdapterResponse(
             _message=f"OK ({len(records)})",
@@ -86,9 +88,27 @@ class NeptuneClient(GraphEngineClient):
             data=payload,
             timeout=self._timeout,
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except HTTPError as exc:
+            detail = response.text.strip()
+            if detail:
+                raise HTTPError(f"{exc}; response body: {detail}", response=response)
+            raise
         body = response.json()
         return self._extract_records(body)
+
+    @staticmethod
+    def _translate_neo4j_metadata_query(cypher: str) -> str:
+        normalized = " ".join(cypher.strip().split()).lower()
+        if normalized == "call db.labels() yield label return label":
+            return "MATCH (n) UNWIND labels(n) AS label RETURN DISTINCT label"
+        if (
+            normalized
+            == "call db.relationshiptypes() yield relationshiptype return relationshiptype"
+        ):
+            return "MATCH ()-[r]->() RETURN DISTINCT type(r) AS relationshipType"
+        return cypher
 
     @staticmethod
     def _open_cypher_endpoint(credentials: Any) -> str:
