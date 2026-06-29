@@ -136,11 +136,24 @@ class NeptuneClient(GraphEngineClient):
         for key, value in sorted(row.items(), key=lambda item: len(item[0]), reverse=True):
             rendered = re.sub(
                 rf"\brow\.{re.escape(str(key))}\b",
-                NeptuneClient._to_open_cypher_literal(value),
+                lambda _: NeptuneClient._to_open_cypher_literal(value),
                 rendered,
             )
 
-        return rendered
+        return NeptuneClient._quote_property_identifiers(rendered)
+
+    @staticmethod
+    def _quote_property_identifiers(cypher: str) -> str:
+        cypher = re.sub(
+            r"(\b[A-Za-z_][A-Za-z0-9_]*\.)([A-Za-z_][A-Za-z0-9_]*)\b",
+            r"\1`\2`",
+            cypher,
+        )
+        return re.sub(
+            r"([,{]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)",
+            r"\1`\2`\3",
+            cypher,
+        )
 
     @staticmethod
     def _to_open_cypher_literal(value: Any) -> str:
@@ -151,8 +164,8 @@ class NeptuneClient(GraphEngineClient):
         if isinstance(value, (int, float)):
             return str(value)
         if isinstance(value, list):
-            return json.dumps(value, separators=(",", ":"))
-        return json.dumps(str(value), separators=(",", ":"))
+            return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        return json.dumps(str(value), ensure_ascii=False, separators=(",", ":"))
 
     @staticmethod
     def _open_cypher_endpoint(credentials: Any) -> str:

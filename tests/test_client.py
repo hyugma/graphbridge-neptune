@@ -156,10 +156,31 @@ def test_client_renders_batch_rows_as_literals_for_neptune(monkeypatch):
 
     assert response.rows_affected == 1
     assert fake_session.posts[0][1] == {
-        "query": """MERGE (n:Company { company_id: "a\\"b" })
-        SET n.company_name = "Ada",
-            n.rank = 1,
-            n._dbt_loaded_at = datetime()
+        "query": """MERGE (n:Company { `company_id`: "a\\"b" })
+        SET n.`company_name` = "Ada",
+            n.`rank` = 1,
+            n.`_dbt_loaded_at` = datetime()
+        """
+    }
+
+
+def test_client_renders_unicode_literals_without_regex_escape_errors(monkeypatch):
+    fake_session = FakeSession()
+    monkeypatch.setattr("requests.Session", lambda: fake_session)
+
+    client = NeptuneClient(DummyCredentials())
+    client.execute_cypher_batch(
+        """
+        UNWIND $batch AS row
+        MERGE (n:CEO { ceo_name: row.ceo_name })
+        SET n._dbt_loaded_at = datetime()
+        """,
+        [{"ceo_name": "佐藤"}],
+    )
+
+    assert fake_session.posts[0][1] == {
+        "query": """MERGE (n:CEO { `ceo_name`: "佐藤" })
+        SET n.`_dbt_loaded_at` = datetime()
         """
     }
 
