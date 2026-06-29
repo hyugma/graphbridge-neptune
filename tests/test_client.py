@@ -1,6 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 import json
+import math
 
 import pytest
 import requests
@@ -185,6 +186,29 @@ def test_client_renders_unicode_literals_without_regex_escape_errors(monkeypatch
     }
 
 
+def test_client_renders_non_finite_numbers_as_null(monkeypatch):
+    fake_session = FakeSession()
+    monkeypatch.setattr("requests.Session", lambda: fake_session)
+
+    client = NeptuneClient(DummyCredentials())
+    client.execute_cypher_batch(
+        """
+        UNWIND $batch AS row
+        MERGE (n:Company { company_id: row.company_id })
+        SET n.market_value = row.market_value,
+            n.assets = row.assets
+        """,
+        [{"company_id": "Acme", "market_value": math.nan, "assets": math.inf}],
+    )
+
+    assert fake_session.posts[0][1] == {
+        "query": """MERGE (n:Company { `company_id`: "Acme" })
+        SET n.`market_value` = null,
+            n.`assets` = null
+        """
+    }
+
+
 def test_metadata_identifiers_are_rendered_as_string_property(monkeypatch):
     fake_session = FakeSession()
     monkeypatch.setattr("requests.Session", lambda: fake_session)
@@ -243,6 +267,8 @@ def test_sanitize_record_converts_json_unsafe_values():
         "created_on": date(2026, 6, 29),
         "nested": {"value": Decimal("2.5")},
         "items": [Decimal("1.5")],
+        "nan": math.nan,
+        "infinite": Decimal("Infinity"),
     }
 
     assert NeptuneClient._sanitize_record(record) == {
@@ -251,6 +277,8 @@ def test_sanitize_record_converts_json_unsafe_values():
         "created_on": "2026-06-29",
         "nested": {"value": 2.5},
         "items": [1.5],
+        "nan": None,
+        "infinite": None,
     }
 
 

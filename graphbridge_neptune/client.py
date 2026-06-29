@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from datetime import date, datetime
 from decimal import Decimal
@@ -98,8 +99,14 @@ class NeptuneClient(GraphEngineClient):
             response.raise_for_status()
         except HTTPError as exc:
             detail = response.text.strip()
+            query = " ".join(cypher.split())
+            if len(query) > 500:
+                query = f"{query[:500]}..."
             if detail:
-                raise HTTPError(f"{exc}; response body: {detail}", response=response)
+                raise HTTPError(
+                    f"{exc}; response body: {detail}; query: {query}",
+                    response=response,
+                )
             raise
         body = response.json()
         return self._extract_records(body)
@@ -161,7 +168,9 @@ class NeptuneClient(GraphEngineClient):
             return "null"
         if isinstance(value, bool):
             return "true" if value else "false"
-        if isinstance(value, (int, float)):
+        if isinstance(value, float):
+            return str(value) if math.isfinite(value) else "null"
+        if isinstance(value, int):
             return str(value)
         if isinstance(value, list):
             return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
@@ -206,7 +215,9 @@ class NeptuneClient(GraphEngineClient):
     @staticmethod
     def _sanitize_value(value: Any) -> Any:
         if isinstance(value, Decimal):
-            return float(value)
+            return float(value) if value.is_finite() else None
+        if isinstance(value, float):
+            return value if math.isfinite(value) else None
         if isinstance(value, (datetime, date)):
             return value.isoformat()
         if isinstance(value, dict):
