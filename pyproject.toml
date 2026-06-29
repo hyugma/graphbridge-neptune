@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "graphbridge-neptune"
+version = "0.1.0"
+description = "Amazon Neptune graph engine add-on for dbt-graph-bridge"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31.0,<3.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "ruff",
+]
+
+[project.entry-points."dbt_graph_bridge.graph_engine"]
+graphbridge-neptune = "graphbridge_neptune:NeptuneClient"
+
+[tool.setuptools.packages.find]
+include = ["graphbridge_neptune", "graphbridge_neptune.*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
